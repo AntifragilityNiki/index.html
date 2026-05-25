@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Симулятор курса Bitcoin (H2 2026) по макропараметрам</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #121214;
+            color: #e1e1e6;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            background-color: #1d1d22;
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 900px;
+            width: 100%;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+        h2 {
+            margin-top: 0;
+            color: #fff;
+            border-bottom: 1px solid #29292e;
+            padding-bottom: 12px;
+        }
+        .main-layout {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 24px;
+        }
+        @media (min-width: 768px) {
+            .main-layout {
+                grid-template-columns: 3fr 2fr;
+            }
+        }
+        .chart-container {
+            position: relative;
+            min-height: 350px;
+            background-color: #141416;
+            border-radius: 8px;
+            padding: 12px;
+        }
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        label {
+            font-size: 14px;
+            color: #a8a8b3;
+            display: flex;
+            justify-content: space-between;
+        }
+        label span {
+            color: #00b37e;
+            font-weight: bold;
+        }
+        input[type="range"] {
+            width: 100%;
+            accent-color: #00b37e;
+            cursor: pointer;
+        }
+        .result-box {
+            background-color: #29292e;
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: auto;
+            border-left: 4px solid #00b37e;
+        }
+        .result-title {
+            font-size: 12px;
+            text-transform: uppercase;
+            color: #a8a8b3;
+            letter-spacing: 1px;
+        }
+        .result-value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #fff;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Симулятор траектории Bitcoin: Второе полугодие 2026</h2>
+    <p style="color: #a8a8b3; font-size: 14px; margin-bottom: 20px;">
+        Меняйте макроэкономические параметры США, чтобы увидеть, как они повлияют на цену BTC к концу года относительно консенсус-прогнозов банков.
+    </p>
+
+    <div class="main-layout">
+        <div class="chart-container">
+            <canvas id="bitcoinChart"></canvas>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label for="tariff">Эффективный тариф США: <span id="tariffVal">10.3%</span></label>
+                <input type="range" id="tariff" min="2.0" max="15.0" step="0.1" value="10.3">
+                <div style="font-size: 11px; color: #7c7c8a;">Текущая ставка после Liberation Day: 10.3%. Ниже = позитив.</div>
+            </div>
+
+            <div class="control-group">
+                <label for="fed">Ключевая ставка ФРС: <span id="fedVal">3.75%</span></label>
+                <input type="range" id="fed" min="1.00" max="6.00" step="0.25" value="3.75">
+                <div style="font-size: 11px; color: #7c7c8a;">Текущая ставка: 3.50%-3.75%. Снижение высвобождает ликвидность.</div>
+            </div>
+
+            <div class="control-group">
+                <label for="etf">Квартальный приток в ETF: <span id="etfVal">18.7 млрд $</span></label>
+                <input type="range" id="etf" min="0.0" max="35.0" step="0.5" value="18.7">
+                <div style="font-size: 11px; color: #7c7c8a;">Показатель Q1 2026: $18.7 млрд. Рост создает дефицит предложения.</div>
+            </div>
+
+            <div class="result-box">
+                <div class="result-title">Расчетный курс на декабрь 2026</div>
+                <div class="result-value" id="finalPrice">$111,200</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Инициализация базовых констант из обзора
+    const START_PRICE = 77500; // Май-Июнь 2026 года (Текущая консолидация)
+    const MONTHS = ["Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
+
+    // Эталонные статичные линии сценариев инвестбанков
+    const bullScenario = [77500, 95000, 118000, 142000, 168000, 195000]; // Цели Fundstrat/JPMorgan
+    const bearScenario = [77500, 74000, 71000, 67000, 63000, 60000];  // Медвежья модель CryptoQuant
+
+    // Ссылки на элементы DOM
+    const tariffSlider = document.getElementById('tariff');
+    const fedSlider = document.getElementById('fed');
+    const etfSlider = document.getElementById('etf');
+
+    const tariffVal = document.getElementById('tariffVal');
+    const fedVal = document.getElementById('fedVal');
+    const etfVal = document.getElementById('etfVal');
+    const finalPriceText = document.getElementById('finalPrice');
+
+    // Функция математического моделирования траектории
+    function calculateTrajectory(tariff, fed, etf) {
+        let trajectory = [START_PRICE];
+        
+        // Базовые макро-отклонения от текущей реальности 2026 года
+        const tariffImpact = (10.3 - tariff) * 4500; // Снижение тарифов дает сильный буст
+        const fedImpact = (3.75 - fed) * 11000;      // Снижение ставки ФРС — главный драйвер ликвидности
+        const etfImpact = (etf - 18.7) * 2800;       // Рост притоков в ETF абсорбирует стаканы
+
+        // Итоговое целевое изменение цены к декабрю
+        const totalShift = tariffImpact + fedImpact + etfImpact;
+        // Базовый органический рост при нейтральных параметрах до $112,000 к концу года
+        const targetDecPrice = Math.max(45000, 112000 + totalShift); 
+
+        // Распределяем изменение цены по месяцам (нелинейно, с ускорением к концу года)
+        for (let i = 1; i <= 5; i++) {
+            let progress = i / 5;
+            // Добавляем небольшой изгиб кривой для реалистичности
+            let curveProgress = Math.pow(progress, 1.2); 
+            let monthlyPrice = START_PRICE + (targetDecPrice - START_PRICE) * curveProgress;
+            trajectory.push(Math.round(monthlyPrice));
+        }
+        
+        return trajectory;
+    }
+
+    // Рендеринг графика при помощи библиотеки Chart.js
+    const ctx = document.getElementById('bitcoinChart').getContext('2d');
+    let dynamicData = calculateTrajectory(10.3, 3.75, 18.7);
+
+    let chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: MONTHS,
+            datasets: [
+                {
+                    label: 'Ваш сценарий',
+                    data: dynamicData,
+                    borderColor: '#00b37e',
+                    backgroundColor: 'rgba(0, 179, 126, 0.1)',
+                    borderWidth: 4,
+                    pointRadius: 4,
+                    fill: true,
+                    tension: 0.2
+                },
+                {
+                    label: 'Консенсус Быков (Банки)',
+                    data: bullScenario,
+                    borderColor: '#fba94c',
+                    borderDash: [5, 5],
+                    pointRadius: 0,
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.1
+                },
+                {
+                    label: 'Медвежья модель',
+                    data: bearScenario,
+                    borderColor: '#f75a68',
+                    borderDash: [5, 5],
+                    pointRadius: 0,
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: { color: '#c4c4cc', font: { size: 12 } }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return context.dataset.label + ': $' + context.raw.toLocaleString();
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    grid: { color: '#29292e' },
+                    ticks: { 
+                        color: '#a8a8b3',
+                        callback: value => '$' + value.toLocaleString()
+                    }
+                },
+                x: {
+                    grid: { display: false },
+                    ticks: { color: '#a8a8b3' }
+                }
+            }
+        }
+    });
+
+    // Функция обновления интерфейса и пересчета графика
+    function updateSimulator() {
+        const tariff = parseFloat(tariffSlider.value);
+        const fed = parseFloat(fedSlider.value);
+        const etf = parseFloat(etfSlider.value);
+
+        // Обновляем текстовые значения возле ползунков
+        tariffVal.innerText = tariff.toFixed(1) + '%';
+        fedVal.innerText = fed.toFixed(2) + '%';
+        etfVal.innerText = etf.toFixed(1) + ' млрд $';
+
+        // Пересчитываем массив цен
+        const newData = calculateTrajectory(tariff, fed, etf);
+        
+        // Обновляем данные на графике и перерисовываем его
+        chart.data.datasets[0].data = newData;
+        chart.update('none'); // Опция 'none' убирает лишние дергания анимации
+
+        // Обновляем итоговый плашечный виджет курса на декабрь
+        const finalPrice = newData[newData.length - 1];
+        finalPriceText.innerText = '$' + finalPrice.toLocaleString();
+    }
+
+    // Вешаем слушатели событий на ползунки
+    tariffSlider.addEventListener('input', updateSimulator);
+    fedSlider.addEventListener('input', updateSimulator);
+    etfSlider.addEventListener('input', updateSimulator);
+
+    // Первичный запуск просчета
+    updateSimulator();
+</script>
+
+</body>
+</html>
